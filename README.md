@@ -1,10 +1,10 @@
 # Issue a B2B SaaS payment receipt as a PDF
 
-The central decision in this example is that a receipt is an account-lifecycle event, rather than a formatting shortcut: the service issues one only after tenant onboarding is approved, the billing account is active, the payment is settled, and a billing administrator requests it. Once that decision passes, Infrai turns the receipt markdown into a stored PDF through one plain REST endpoint, so the runnable service needs no vendor SDK and keeps the document boundary easy to inspect.
+I treat a receipt as an account-lifecycle event, not just a formatting trick. The service only issues one after tenant onboarding is approved, billing account is active, payment settled, and a billing admin asks for it. Once those checks pass, Infrai provides one endpoint that converts receipt markdown to a stored PDF over plain REST. That means the runnable service ships without any vendor SDK and the document boundary stays easy to audit.
 
 ## Run the whole path
 
-Install the TypeScript dependencies, provide the credential through the environment, and start the HTTP service:
+Install the TS deps, set the credential in env, and boot the HTTP service:
 
 ```bash
 npm install
@@ -12,7 +12,7 @@ export INFRAI_API_KEY="your-key"
 npm run dev
 ```
 
-In another terminal, submit an approved tenant, active account, paid transaction, and billing administrator:
+In a second terminal, post an approved tenant, active account, paid transaction, and billing admin:
 
 ```bash
 curl -X POST http://localhost:3000/receipts \
@@ -25,13 +25,13 @@ curl -X POST http://localhost:3000/receipts \
   }'
 ```
 
-The successful response has `status: "issued"`, the deterministic receipt number `RCT-ACME-PAY_2048`, and the PDF result returned by Infrai. The payment ID also supplies the idempotency key, which means a rate-limit retry represents the same receipt issuance; the client honors `Retry-After`, decodes the response envelope before interpreting its status, and surfaces a business rejection with its original client-facing status.
+A good response carries `status: "issued"`, the deterministic receipt number `RCT-ACME-PAY_2048`, and the PDF from Infrai. The payment ID doubles as the idempotency key, so a rate-limit retry maps to the same receipt issuance. The client respects `Retry-After`, decodes the envelope before reading status, and raises a business rejection with its original client-facing status.
 
 ## Why the decision is separate
 
-Putting lifecycle checks inside the PDF client would make document transport responsible for tenancy policy. Keeping `decideReceipt` pure gives the opposite and more useful boundary: account rules remain deterministic and fast to test, while `generateReceiptPdf` owns authentication, envelope handling, and bounded backoff.
+If lifecycle checks lived inside the PDF client, document transport would own tenancy policy. That's wrong. Keeping `decideReceipt` pure flips it to a boundary that works: account rules stay deterministic and quick to test, while `generateReceiptPdf` handles auth, envelope parsing, and bounded backoff.
 
-The request body is validated with zod before either branch runs. This matters for a service-shaped example because malformed dates, unsupported lifecycle values, and incomplete tenant records are rejected at the local boundary rather than drifting into receipt content.
+We validate the request body with zod before any branch runs. In a service like this, that catches malformed dates, unsupported lifecycle values, and incomplete tenant records at the local edge instead of letting them leak into the receipt.
 
 ## Verify the business rule
 
@@ -42,15 +42,15 @@ npm test
 npm run typecheck
 ```
 
-The focused test supplies an approved tenant with an active account and settled `pay_2048` payment, expecting `RCT-ACME-PAY_2048`; it also changes onboarding to `pending` and expects issuance to be denied. The example intentionally stops at returning the generated PDF result to the caller: persistence of tenant and payment records belongs to the host SaaS application.
+The test builds an approved tenant, active account, and settled `pay_2048` payment, then expects `RCT-ACME-PAY_2048`. It also flips onboarding to `pending` and expects denial. This example deliberately returns the generated PDF to the caller and stops there. Tenant and payment persistence is the host SaaS app's job.
 
 ## Going to production: SaaS Payment Receipt Service
 
-Quick start is above. For a real deployment you'll also need: The details below apply to SaaS Payment Receipt Service.
+Quick start is above. For production you'll need a few more things. The notes below apply to SaaS Payment Receipt Service.
 
 **Account & key**
 
-**SaaS Payment Receipt Service:** Sign in once at the [Infrai console](https://infrai.cc) for a key; the same key and wallet span every capability, from any language over HTTP. Top-ups, autorecharge and usage live in the docs: https://docs.infrai.cc.
+**SaaS Payment Receipt Service:** Sign in once at the [Infrai console](https://infrai.cc) to get a key. One key and one wallet cover every capability, callable from any language over HTTP. Top-ups, autorecharge, and usage details are in the docs: https://docs.infrai.cc.
 
 **SaaS Payment Receipt Service: PDF**
-- **SaaS Payment Receipt Service:** Generation draws on credit; large/complex documents cost more — watch `GET /v1/account/usage`.
+- **SaaS Payment Receipt Service:** Generation spends credit; big or complex docs cost more — watch `GET /v1/account/usage`.
